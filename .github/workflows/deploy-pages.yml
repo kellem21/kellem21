@@ -24,7 +24,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: claude/kind-clarke-tmy3xf
-      - uses: actions/configure-pages@v4
       - uses: actions/upload-pages-artifact@v3
         with:
           path: '.'
