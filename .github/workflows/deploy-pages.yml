@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [claude/cosmic-agent-interface-7l9hag]
+    branches: [claude/kind-clarke-tmy3xf]
   workflow_dispatch:
 
 permissions:
@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: claude/cosmic-agent-interface-7l9hag
+          ref: claude/kind-clarke-tmy3xf
       - uses: actions/configure-pages@v4
       - uses: actions/upload-pages-artifact@v3
         with:
