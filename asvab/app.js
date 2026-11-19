@@ -98,7 +98,49 @@ const MK_GEN = [
 const STORE_KEY = "asvab-study-v1";
 const defaultState = () => ({ stats: {}, history: [], missed: [], streak: { last: null, days: 0 } });
 let state = (() => { try { return { ...defaultState(), ...JSON.parse(localStorage.getItem(STORE_KEY)) }; } catch { return defaultState(); } })();
-const save = () => localStorage.setItem(STORE_KEY, JSON.stringify(state));
+// Saves locally, and to the viewer's Claude account when the page runs as a Claude artifact.
+let cloud = null, cloudBusy = false, cloudAgain = false, cloudTimer = null;
+function save() {
+  state.updated = Date.now();
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch {}
+  if (cloud) { clearTimeout(cloudTimer); cloudTimer = setTimeout(pushCloud, 1500); }
+}
+async function pushCloud() {
+  if (cloudBusy) { cloudAgain = true; return; }
+  cloudBusy = true;
+  try { await cloud.set(JSON.parse(JSON.stringify(state))); } catch (e) { if (e && e.code === "invalid_argument") cloud = null; }
+  cloudBusy = false;
+  if (cloudAgain) { cloudAgain = false; pushCloud(); }
+}
+async function initCloud() {
+  for (let i = 0; i < 20 && !(window.claude && typeof window.claude.use === "function"); i++) await new Promise((r) => setTimeout(r, 250));
+  if (!(window.claude && typeof window.claude.use === "function")) return;
+  try {
+    const [db, user] = await Promise.all([window.claude.use("db"), window.claude.use("user")]);
+    const uid = db && user ? await user.id() : null;
+    if (!uid) return;
+    const ref = db.doc("data/users/" + uid + "/progress");
+    const snap = await ref.get();
+    const remote = snap.exists ? snap.data() : null;
+    cloud = ref;
+    if (remote && (remote.updated || 0) > (state.updated || 0)) {
+      state = { ...defaultState(), ...JSON.parse(JSON.stringify(remote)) };
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch {}
+      if (["home", "review"].includes(currentView)) nav(currentView);
+    } else if (state.updated) pushCloud();
+  } catch {}
+}
+
+// In-page dialogs (browser pop-ups are blocked inside embedded pages)
+function dialog(msg, ok = "OK", cancel = null) {
+  return new Promise((resolve) => {
+    const d = document.createElement("div");
+    d.className = "modal";
+    d.innerHTML = `<div class="box"><p>${esc(msg)}</p><div class="actions">${cancel ? `<button class="btn ghost" data-v="0">${esc(cancel)}</button>` : "<span></span>"}<button class="btn" data-v="1">${esc(ok)}</button></div></div>`;
+    d.querySelectorAll("button").forEach((b) => (b.onclick = () => { d.remove(); resolve(b.dataset.v === "1"); }));
+    document.body.appendChild(d);
+  });
+}
 
 function record(sub, q, correct) {
   const s = (state.stats[sub] ||= { right: 0, total: 0 });
@@ -140,8 +182,10 @@ function afqtEstimate() {
 const app = $("#app");
 let timer = null;
 
+let currentView = "home";
 function nav(view) {
   clearInterval(timer);
+  currentView = view;
   document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   ({ home, practice: practiceMenu, test: testMenu, cards: flashcards, review, guide }[view] || home)();
   window.scrollTo(0, 0);
@@ -208,6 +252,7 @@ function testMenu() {
 
 function runQuiz({ subs, n, perSub, mode, minutes, title, preset }) {
   clearInterval(timer);
+  currentView = "quiz";
   let items;
   if (preset) items = preset;
   else if (perSub) items = subs.flatMap((s) => getQuestions(s, SUBTESTS[s].count).map((q) => ({ sub: s, q })));
@@ -251,7 +296,7 @@ function runQuiz({ subs, n, perSub, mode, minutes, title, preset }) {
     }));
     $("#next").onclick = () => (i < items.length - 1 ? (i++, render()) : finish());
     if ($("#prev")) $("#prev").onclick = () => { i--; render(); };
-    if ($("#finish")) $("#finish").onclick = () => { if (confirm(`Finish now? ${answers.filter((a) => a === null).length} unanswered.`)) finish(); };
+    if ($("#finish")) $("#finish").onclick = () => { dialog(`Finish now? ${answers.filter((a) => a === null).length} unanswered.`, "Finish", "Keep going").then((y) => y && finish()); };
     app.querySelectorAll(".dot").forEach((d) => (d.onclick = () => { i = +d.dataset.j; render(); }));
     tick();
   }
@@ -261,7 +306,7 @@ function runQuiz({ subs, n, perSub, mode, minutes, title, preset }) {
     const left = Math.max(0, ends - Date.now());
     const el = $("#clock");
     if (el) { el.textContent = `${Math.floor(left / 60000)}:${String(Math.floor((left % 60000) / 1000)).padStart(2, "0")}`; el.classList.toggle("low", left < 120000); }
-    if (left <= 0) { clearInterval(timer); alert("Time's up!"); finish(); }
+    if (left <= 0) { clearInterval(timer); finish(); dialog("Time's up! Here are your results."); }
   }
   if (ends) timer = setInterval(tick, 1000);
 
@@ -317,7 +362,7 @@ function review() {
     <p><button class="btn ghost danger" id="reset">Reset all progress</button></p>`;
   if ($("#drill")) $("#drill").onclick = () => runQuiz({ subs: [...new Set(m.map((x) => x.sub))], mode: "practice", title: "Missed questions", preset: shuffle(m).slice(0, 20) });
   if ($("#clear")) $("#clear").onclick = () => { state.missed = []; save(); review(); };
-  $("#reset").onclick = () => { if (confirm("Erase all progress?")) { state = defaultState(); save(); review(); } };
+  $("#reset").onclick = () => { dialog("Erase all progress?", "Erase", "Cancel").then((y) => { if (y) { state = defaultState(); save(); review(); } }); };
 }
 
 function guide() {
@@ -346,3 +391,4 @@ function guide() {
 
 document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => nav(b.dataset.view)));
 nav("home");
+initCloud();

@@ -82,3 +82,6 @@ select { background: var(--panel); color: var(--text); border: 1px solid var(--l
 .prose p, .prose li { color: var(--text); margin-bottom: 8px; }
 .prose ul { padding-left: 20px; }
 @media (max-width: 560px) { h1 { font-size: 24px; } .qtext { font-size: 16px; } .score { font-size: 48px; } }
+.modal { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.6); display: grid; place-items: center; padding: 20px; }
+.modal .box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; max-width: 360px; width: 100%; }
+.modal .box p { font-size: 17px; }
